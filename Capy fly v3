@@ -1,0 +1,698 @@
+--[[
+    🦫 CAPY FLY SPEED V3 - DRAGGABLE EDITION
+    creds: capy: the idea maker chat GPT the code maker
+
+    Added: Touch + mouse dragging for the entire menu.
+    Original V2 flying movement and V3 settings preserved.
+]]
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local StarterGui = game:GetService("StarterGui")
+local UserInputService = game:GetService("UserInputService")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+--==================================================
+-- NOTIFICATIONS
+--==================================================
+
+local function notify(titleText, messageText)
+    for attempt = 1, 20 do
+        local success = pcall(function()
+            StarterGui:SetCore("SendNotification", {
+                Title = titleText,
+                Text = messageText,
+                Duration = 5
+            })
+        end)
+
+        if success then return end
+        task.wait(0.5)
+    end
+end
+
+task.spawn(function()
+    task.wait(1)
+    notify("CAPY FLY", "Welcome! Fly script loaded!")
+    task.wait(2)
+    notify("CAPY FLY CREDITS",
+        "creds: capy: the idea maker chat GPT the code maker")
+end)
+
+--==================================================
+-- SPEED
+--==================================================
+
+local BASE_SPEED = 60
+local MIN_SPEED = 0.10
+local MAX_SPEED = 3.00
+
+local speedMultiplier = 1
+local flying = false
+
+local character
+local humanoid
+local rootPart
+local flyVelocity
+local flyGyro
+local flyConnection
+local characterConnection
+local animationConnection
+
+--==================================================
+-- THEMES
+--==================================================
+
+local THEMES = {
+    Original = {
+        background = Color3.fromRGB(205, 239, 216),
+        button = Color3.fromRGB(242, 140, 40),
+        text = Color3.fromRGB(35, 65, 48),
+        white = Color3.fromRGB(255, 255, 255),
+        outline = Color3.fromRGB(242, 140, 40)
+    },
+    Ocean = {
+        background = Color3.fromRGB(23, 44, 80),
+        button = Color3.fromRGB(33, 212, 253),
+        text = Color3.fromRGB(220, 247, 255),
+        white = Color3.fromRGB(15, 40, 65),
+        outline = Color3.fromRGB(33, 212, 253)
+    },
+    Galaxy = {
+        background = Color3.fromRGB(48, 30, 75),
+        button = Color3.fromRGB(183, 100, 255),
+        text = Color3.fromRGB(245, 225, 255),
+        white = Color3.fromRGB(255, 255, 255),
+        outline = Color3.fromRGB(220, 120, 255)
+    },
+    Sunset = {
+        background = Color3.fromRGB(75, 37, 57),
+        button = Color3.fromRGB(255, 115, 75),
+        text = Color3.fromRGB(255, 230, 200),
+        white = Color3.fromRGB(255, 255, 255),
+        outline = Color3.fromRGB(255, 175, 80)
+    },
+    Toxic = {
+        background = Color3.fromRGB(30, 55, 37),
+        button = Color3.fromRGB(125, 255, 55),
+        text = Color3.fromRGB(225, 255, 205),
+        white = Color3.fromRGB(25, 45, 25),
+        outline = Color3.fromRGB(125, 255, 55)
+    },
+    Pastel = {
+        background = Color3.fromRGB(250, 232, 247),
+        button = Color3.fromRGB(255, 180, 210),
+        text = Color3.fromRGB(90, 55, 95),
+        white = Color3.fromRGB(255, 255, 255),
+        outline = Color3.fromRGB(205, 155, 255)
+    }
+}
+
+local currentColors = THEMES.Original
+local currentThemeName = "Original"
+local animationMode = "Off"
+local animationHue = 0
+
+--==================================================
+-- CLEANUP OLD GUI
+--==================================================
+
+local oldGui = playerGui:FindFirstChild("CapyFlySpeedGui")
+if oldGui then
+    oldGui:Destroy()
+end
+
+--==================================================
+-- SCREEN GUI
+--==================================================
+
+local gui = Instance.new("ScreenGui")
+gui.Name = "CapyFlySpeedGui"
+gui.ResetOnSpawn = false
+gui.IgnoreGuiInset = true
+gui.DisplayOrder = 20
+gui.Parent = playerGui
+
+--==================================================
+-- MAIN PANEL
+--==================================================
+
+local panel = Instance.new("Frame")
+panel.Name = "SpeedPanel"
+panel.Size = UDim2.fromOffset(190, 184)
+panel.Position = UDim2.new(1, -202, 0.62, -90)
+panel.BackgroundColor3 = currentColors.background
+panel.BorderSizePixel = 0
+panel.Active = true
+panel.Parent = gui
+
+Instance.new("UICorner", panel).CornerRadius = UDim.new(0, 12)
+
+local outline = Instance.new("UIStroke")
+outline.Color = currentColors.outline
+outline.Thickness = 2
+outline.Parent = panel
+
+--==================================================
+-- GUI HELPERS
+--==================================================
+
+local function makeLabel(parent, name, text, size, position, textSize)
+    local label = Instance.new("TextLabel")
+    label.Name = name
+    label.Size = size
+    label.Position = position
+    label.BackgroundTransparency = 1
+    label.Text = text
+    label.TextColor3 = currentColors.text
+    label.TextSize = textSize
+    label.Font = Enum.Font.GothamBold
+    label.Parent = parent
+    return label
+end
+
+local function makeButton(parent, name, text, size, position)
+    local button = Instance.new("TextButton")
+    button.Name = name
+    button.Size = size
+    button.Position = position
+    button.BackgroundColor3 = currentColors.button
+    button.Text = text
+    button.TextColor3 = currentColors.white
+    button.TextSize = 12
+    button.Font = Enum.Font.GothamBold
+    button.BorderSizePixel = 0
+    button.AutoButtonColor = true
+    button.Parent = parent
+
+    Instance.new("UICorner", button).CornerRadius = UDim.new(0, 7)
+    return button
+end
+
+--==================================================
+-- TITLE: DRAG HANDLE
+--==================================================
+
+local title = makeLabel(
+    panel, "Title", "✈ CAPY FLY SPEED",
+    UDim2.new(1, 0, 0, 26),
+    UDim2.fromOffset(0, 0), 14
+)
+
+-- Make the title a transparent button so touch dragging
+-- works reliably on mobile as well as mouse input.
+local dragHandle = Instance.new("TextButton")
+dragHandle.Name = "DragHandle"
+dragHandle.Size = UDim2.new(1, 0, 0, 27)
+dragHandle.Position = UDim2.fromOffset(0, 0)
+dragHandle.BackgroundTransparency = 1
+dragHandle.Text = ""
+dragHandle.AutoButtonColor = false
+dragHandle.Active = true
+dragHandle.ZIndex = 5
+dragHandle.Parent = panel
+
+--==================================================
+-- DRAGGING: MAIN PANEL + SETTINGS PANEL
+--==================================================
+
+local settingsPanel -- assigned after settings panel is created
+local dragging = false
+local dragInput
+local dragStart
+local startPanelPosition
+
+local function clampPanelPosition(position, panelSize)
+    local camera = workspace.CurrentCamera
+    local viewport = camera and camera.ViewportSize
+
+    if not viewport then
+        return position
+    end
+
+    local width = panelSize.X.Offset
+    local height = panelSize.Y.Offset
+
+    local x = math.clamp(
+        position.X.Offset,
+        0,
+        math.max(0, viewport.X - width)
+    )
+
+    local y = math.clamp(
+        position.Y.Offset,
+        0,
+        math.max(0, viewport.Y - height)
+    )
+
+    return UDim2.fromOffset(x, y)
+end
+
+dragHandle.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+
+        dragging = true
+        dragStart = input.Position
+        startPanelPosition = panel.Position
+        dragInput = input
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if dragging and (
+        input.UserInputType == Enum.UserInputType.MouseMovement
+        or input.UserInputType == Enum.UserInputType.Touch
+    ) then
+        if dragInput
+            and input.UserInputType == Enum.UserInputType.Touch
+            and input ~= dragInput then
+            return
+        end
+
+        local delta = input.Position - dragStart
+
+        local newPosition = UDim2.new(
+            startPanelPosition.X.Scale,
+            startPanelPosition.X.Offset + delta.X,
+            startPanelPosition.Y.Scale,
+            startPanelPosition.Y.Offset + delta.Y
+        )
+
+        panel.Position = clampPanelPosition(newPosition, panel.Size)
+
+        if settingsPanel then
+            settingsPanel.Position = UDim2.new(
+                panel.Position.X.Scale,
+                panel.Position.X.Offset,
+                panel.Position.Y.Scale,
+                panel.Position.Y.Offset - settingsPanel.Size.Y.Offset - 8
+            )
+        end
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input == dragInput
+        or input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = false
+        dragInput = nil
+    end
+end)
+
+--==================================================
+-- FLY + SETTINGS BUTTONS
+--==================================================
+
+local flyButton = makeButton(
+    panel, "FlyToggle", "✈ FLY: OFF",
+    UDim2.new(1, -12, 0, 29),
+    UDim2.fromOffset(6, 27)
+)
+flyButton.TextSize = 14
+
+local settingsButton = makeButton(
+    panel, "SettingsToggle", "⚙ SETTINGS",
+    UDim2.new(1, -12, 0, 24),
+    UDim2.fromOffset(6, 59)
+)
+
+local speedLabel = makeLabel(
+    panel, "SpeedLabel", "Speed: 100%",
+    UDim2.new(1, 0, 0, 22),
+    UDim2.fromOffset(0, 84), 15
+)
+
+local function updateSpeed()
+    speedLabel.Text = "Speed: "
+        .. tostring(math.floor(speedMultiplier * 100 + 0.5))
+        .. "%"
+end
+
+local function createSpeedRow(y, amount, labelText)
+    makeLabel(
+        panel, "SpeedRow" .. labelText, labelText,
+        UDim2.fromOffset(66, 29),
+        UDim2.fromOffset(6, y), 12
+    )
+
+    local minus = makeButton(
+        panel, "Minus" .. labelText, "−",
+        UDim2.fromOffset(43, 29),
+        UDim2.fromOffset(76, y)
+    )
+    minus.TextSize = 22
+
+    local plus = makeButton(
+        panel, "Plus" .. labelText, "+",
+        UDim2.fromOffset(43, 29),
+        UDim2.fromOffset(124, y)
+    )
+    plus.TextSize = 22
+
+    minus.Activated:Connect(function()
+        speedMultiplier = math.max(
+            MIN_SPEED,
+            math.floor((speedMultiplier - amount) * 100 + 0.5) / 100
+        )
+        updateSpeed()
+    end)
+
+    plus.Activated:Connect(function()
+        speedMultiplier = math.min(
+            MAX_SPEED,
+            math.floor((speedMultiplier + amount) * 100 + 0.5) / 100
+        )
+        updateSpeed()
+    end)
+end
+
+createSpeedRow(110, 0.10, "10%")
+createSpeedRow(146, 0.05, "5%")
+
+--==================================================
+-- SETTINGS PANEL
+--==================================================
+
+settingsPanel = Instance.new("Frame")
+settingsPanel.Name = "SettingsPanel"
+settingsPanel.Size = UDim2.fromOffset(190, 192)
+settingsPanel.Position = UDim2.new(
+    panel.Position.X.Scale,
+    panel.Position.X.Offset,
+    panel.Position.Y.Scale,
+    panel.Position.Y.Offset - 200
+)
+settingsPanel.BackgroundColor3 = currentColors.background
+settingsPanel.BorderSizePixel = 0
+settingsPanel.Visible = false
+settingsPanel.Parent = gui
+
+Instance.new("UICorner", settingsPanel).CornerRadius = UDim.new(0, 12)
+
+local settingsOutline = Instance.new("UIStroke")
+settingsOutline.Color = currentColors.outline
+settingsOutline.Thickness = 2
+settingsOutline.Parent = settingsPanel
+
+makeLabel(
+    settingsPanel, "SettingsTitle", "⚙ CAPY SETTINGS",
+    UDim2.new(1, -36, 0, 27),
+    UDim2.fromOffset(5, 3), 13
+)
+
+local closeSettings = makeButton(
+    settingsPanel, "CloseSettings", "X",
+    UDim2.fromOffset(25, 24),
+    UDim2.new(1, -30, 0, 4)
+)
+
+local presetNames = {"Original", "Ocean", "Galaxy", "Sunset", "Toxic", "Pastel"}
+local presetPositions = {
+    UDim2.fromOffset(6, 53),
+    UDim2.fromOffset(98, 53),
+    UDim2.fromOffset(6, 84),
+    UDim2.fromOffset(98, 84),
+    UDim2.fromOffset(6, 115),
+    UDim2.fromOffset(98, 115)
+}
+
+makeLabel(
+    settingsPanel, "PresetTitle", "🎨 MENU THEMES",
+    UDim2.new(1, -12, 0, 20),
+    UDim2.fromOffset(6, 30), 12
+)
+
+local themeButtons = {}
+
+for index, name in ipairs(presetNames) do
+    local button = makeButton(
+        settingsPanel, "Theme" .. name, name,
+        UDim2.fromOffset(86, 27),
+        presetPositions[index]
+    )
+    button.TextSize = 11
+    themeButtons[name] = button
+end
+
+local rgbButton = makeButton(
+    settingsPanel, "RGBToggle", "🌈 RGB: OFF",
+    UDim2.fromOffset(86, 27),
+    UDim2.fromOffset(6, 150)
+)
+
+local rainbowButton = makeButton(
+    settingsPanel, "RainbowToggle", "RAINBOW: OFF",
+    UDim2.fromOffset(86, 27),
+    UDim2.fromOffset(98, 150)
+)
+
+rgbButton.TextSize = 10
+rainbowButton.TextSize = 10
+
+--==================================================
+-- THEMES
+--==================================================
+
+local function applyTheme(colors)
+    currentColors = colors
+    panel.BackgroundColor3 = colors.background
+    settingsPanel.BackgroundColor3 = colors.background
+    outline.Color = colors.outline
+    settingsOutline.Color = colors.outline
+
+    for _, container in ipairs({panel, settingsPanel}) do
+        for _, child in ipairs(container:GetChildren()) do
+            if child:IsA("TextLabel") then
+                child.TextColor3 = colors.text
+            elseif child:IsA("TextButton") and child ~= dragHandle then
+                child.BackgroundColor3 = colors.button
+                child.TextColor3 = colors.white
+            end
+        end
+    end
+end
+
+local function chooseTheme(name)
+    currentThemeName = name
+    animationMode = "Off"
+    applyTheme(THEMES[name])
+    rgbButton.Text = "🌈 RGB: OFF"
+    rainbowButton.Text = "RAINBOW: OFF"
+end
+
+for name, button in pairs(themeButtons) do
+    button.Activated:Connect(function()
+        chooseTheme(name)
+    end)
+end
+
+rgbButton.Activated:Connect(function()
+    if animationMode == "RGB" then
+        animationMode = "Off"
+        rgbButton.Text = "🌈 RGB: OFF"
+    else
+        animationMode = "RGB"
+        rgbButton.Text = "🌈 RGB: ON"
+        rainbowButton.Text = "RAINBOW: OFF"
+    end
+end)
+
+rainbowButton.Activated:Connect(function()
+    if animationMode == "Rainbow" then
+        animationMode = "Off"
+        rainbowButton.Text = "RAINBOW: OFF"
+    else
+        animationMode = "Rainbow"
+        rainbowButton.Text = "RAINBOW: ON"
+        rgbButton.Text = "🌈 RGB: OFF"
+    end
+end)
+
+animationConnection = RunService.Heartbeat:Connect(function(dt)
+    if animationMode == "Off" then return end
+
+    local rate = animationMode == "Rainbow" and 0.32 or 0.10
+    animationHue = (animationHue + dt * rate) % 1
+
+    local hueColor = Color3.fromHSV(animationHue, 0.8, 1)
+    local backgroundColor = Color3.fromHSV(
+        (animationHue + 0.5) % 1,
+        animationMode == "Rainbow" and 0.35 or 0.55,
+        animationMode == "Rainbow" and 1 or 0.65
+    )
+
+    panel.BackgroundColor3 = backgroundColor
+    settingsPanel.BackgroundColor3 = backgroundColor
+    outline.Color = hueColor
+    settingsOutline.Color = hueColor
+
+    for _, container in ipairs({panel, settingsPanel}) do
+        for _, child in ipairs(container:GetChildren()) do
+            if child:IsA("TextButton") and child ~= dragHandle then
+                child.BackgroundColor3 = hueColor
+            end
+        end
+    end
+end)
+
+settingsButton.Activated:Connect(function()
+    settingsPanel.Visible = not settingsPanel.Visible
+end)
+
+closeSettings.Activated:Connect(function()
+    settingsPanel.Visible = false
+end)
+
+--==================================================
+-- CHARACTER HANDLING
+--==================================================
+
+local function getCharacter()
+    character = player.Character or player.CharacterAdded:Wait()
+    humanoid = character:WaitForChild("Humanoid")
+    rootPart = character:WaitForChild("HumanoidRootPart")
+end
+
+local function stopFlying()
+    flying = false
+
+    if flyConnection then
+        flyConnection:Disconnect()
+        flyConnection = nil
+    end
+
+    if flyVelocity then
+        flyVelocity:Destroy()
+        flyVelocity = nil
+    end
+
+    if flyGyro then
+        flyGyro:Destroy()
+        flyGyro = nil
+    end
+
+    if humanoid and humanoid.Parent then
+        humanoid.PlatformStand = false
+        humanoid.AutoRotate = true
+        humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+    end
+
+    if flyButton and flyButton.Parent then
+        flyButton.Text = "✈ FLY: OFF"
+    end
+end
+
+--==================================================
+-- FLYING: ORIGINAL V2 MOVEMENT
+--==================================================
+
+local function startFlying()
+    getCharacter()
+
+    if not humanoid or not rootPart or humanoid.Health <= 0 then
+        return
+    end
+
+    if flyConnection then flyConnection:Disconnect() end
+    if flyVelocity then flyVelocity:Destroy() end
+    if flyGyro then flyGyro:Destroy() end
+
+    flying = true
+    flyButton.Text = "✈ FLY: ON"
+
+    humanoid.AutoRotate = false
+    humanoid.PlatformStand = true
+
+    flyVelocity = Instance.new("BodyVelocity")
+    flyVelocity.Name = "CapyFlyVelocity"
+    flyVelocity.MaxForce = Vector3.new(1e9, 1e9, 1e9)
+    flyVelocity.P = 1e4
+    flyVelocity.Velocity = Vector3.zero
+    flyVelocity.Parent = rootPart
+
+    flyGyro = Instance.new("BodyGyro")
+    flyGyro.Name = "CapyFlyGyro"
+    flyGyro.MaxTorque = Vector3.new(1e9, 1e9, 1e9)
+    flyGyro.P = 1e5
+    flyGyro.D = 1e3
+    flyGyro.CFrame = workspace.CurrentCamera.CFrame
+    flyGyro.Parent = rootPart
+
+    flyConnection = RunService.RenderStepped:Connect(function()
+        if not flying or not rootPart or not rootPart.Parent
+            or not humanoid or humanoid.Health <= 0 then
+            stopFlying()
+            return
+        end
+
+        local camera = workspace.CurrentCamera
+        if not camera then return end
+
+        local moveDirection = humanoid.MoveDirection
+        local look = camera.CFrame.LookVector
+
+        local flatForward = Vector3.new(look.X, 0, look.Z)
+        if flatForward.Magnitude > 0.001 then
+            flatForward = flatForward.Unit
+        else
+            flatForward = Vector3.new(0, 0, -1)
+        end
+
+        local flatRight = Vector3.new(-flatForward.Z, 0, flatForward.X)
+        local forwardAmount = moveDirection:Dot(flatForward)
+        local rightAmount = moveDirection:Dot(flatRight)
+        local currentSpeed = BASE_SPEED * speedMultiplier
+
+        local horizontal = (
+            flatForward * forwardAmount + flatRight * rightAmount
+        ) * currentSpeed
+
+        local vertical = forwardAmount * look.Y * currentSpeed
+        flyVelocity.Velocity = horizontal + Vector3.new(0, vertical, 0)
+        flyGyro.CFrame = camera.CFrame
+    end)
+end
+
+flyButton.Activated:Connect(function()
+    if flying then
+        stopFlying()
+    else
+        startFlying()
+    end
+end)
+
+characterConnection = player.CharacterAdded:Connect(function(newCharacter)
+    stopFlying()
+    character = newCharacter
+    humanoid = nil
+    rootPart = nil
+
+    task.wait(0.2)
+
+    if player.Character == newCharacter then
+        getCharacter()
+    end
+end)
+
+--==================================================
+-- INITIALIZE
+--==================================================
+
+getCharacter()
+updateSpeed()
+applyTheme(THEMES.Original)
+
+script.Destroying:Connect(function()
+    stopFlying()
+
+    if characterConnection then
+        characterConnection:Disconnect()
+    end
+
+    if animationConnection then
+        animationConnection:Disconnect()
+    end
+end)
